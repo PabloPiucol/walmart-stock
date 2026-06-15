@@ -8,7 +8,7 @@ Servicio Docker para preparar y enviar manualmente el stock disponible de una su
    - `BSALE_ACCESS_TOKEN`
    - `WALMART_CLIENT_ID`
    - `WALMART_CLIENT_SECRET`
-   - `WALMART_PARTNER_ID`
+   - `WALMART_PARTNER_ID`, si Walmart te lo asignó
    - `WALMART_CHANNEL_TYPE`, si Walmart te lo asignó
 2. Ejecuta:
 
@@ -25,11 +25,11 @@ Ejecuta una sola réplica del servicio: SQLite y el bloqueo de sincronización e
 
 El servicio implementa el flujo oficial `client_credentials`:
 
-1. Solicita un access token mediante [`POST /v3/token`](https://developer.walmart.com/cl-marketplace/reference/tokenapi), usando Basic Auth y `WM_PARTNER.ID`.
-2. Valida el token mediante [`GET /v3/token/detail`](https://developer.walmart.com/cl-marketplace/reference/gettokendetail) antes de cada envío o reanudación.
-3. Si una operación de Walmart responde `401`, renueva y valida el token una sola vez antes de reintentar.
+1. Solicita un access token mediante [`POST /v3/token`](https://developer.walmart.com/cl-marketplace/reference/tokenapi), usando Basic Auth.
+2. Usa el token directamente en [`POST /v3/feeds?feedType=inventory`](https://developer.walmart.com/cl-marketplace/reference/updatebulkinventory).
+3. Si una operación de Walmart responde `401`, renueva el token una sola vez antes de reintentar.
 
-En **Configuración → Walmart Chile** puedes probar este flujo manualmente. La última fecha, estado y respuesta resumida quedan visibles sin persistir tokens ni secretos.
+En **Configuración → Walmart Chile** puedes probar la obtención del token. La última fecha, estado y metadatos seguros de la emisión quedan visibles sin persistir tokens ni secretos.
 
 ## Funcionamiento
 
@@ -39,7 +39,7 @@ En **Configuración → Walmart Chile** puedes probar este flujo manualmente. La
 - Los SKU faltantes o duplicados en Bsale se reportan como errores locales y no se envían.
 - Los productos exclusivos de Walmart quedan intactos.
 - **Enviar productos** divide automáticamente las cantidades guardadas en feeds masivos menores a 5 MB.
-- Antes de enviar o reanudar, el servicio obtiene un token con `client_credentials` y lo valida mediante `GET /v3/token/detail`.
+- Antes de enviar o reanudar, el servicio obtiene un token con `client_credentials`.
 - Walmart aplica los SKU existentes y los SKU rechazados, incluidos los inexistentes, se registran como omitidos.
 - El servicio procesa los feeds secuencialmente, espera cada resultado durante un máximo configurable de 35 minutos y conserva todos sus `feedId`.
 - Si Walmart todavía no publica el estado de un feed, el servicio continúa consultándolo hasta el timeout.
@@ -57,7 +57,7 @@ En **Configuración → Walmart Chile** puedes probar este flujo manualmente. La
 | `WALMART_CLIENT_SECRET` | obligatorio | Client secret usado en Basic Auth |
 | `WALMART_API_URL` | `https://marketplace.walmartapis.com` | API Walmart Marketplace |
 | `WALMART_MARKET` | `cl` | Mercado Walmart |
-| `WALMART_PARTNER_ID` | obligatorio | Partner ID enviado como `WM_PARTNER.ID` |
+| `WALMART_PARTNER_ID` | vacío | Partner ID opcional enviado solamente al Token API |
 | `WALMART_CHANNEL_TYPE` | vacío | Channel type, si Walmart lo asignó |
 | `WALMART_FEED_TIMEOUT_SECONDS` | `2100` | Tiempo máximo de seguimiento del feed |
 | `WALMART_FEED_POLL_SECONDS` | `30` | Intervalo entre consultas de estado |

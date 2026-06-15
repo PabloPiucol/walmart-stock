@@ -118,7 +118,7 @@ def test_failed_run_without_feed_cannot_resume():
 def test_manual_walmart_authentication_test_redirects_after_result(monkeypatch):
     calls = []
     db = object()
-    monkeypatch.setattr(main, "validate_walmart_auth", lambda value: calls.append(value))
+    monkeypatch.setattr(main, "obtain_walmart_token", lambda value: calls.append(value))
 
     response = main.test_walmart_authentication(db)
 

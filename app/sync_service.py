@@ -11,7 +11,7 @@ from app.config import get_config
 from app.database import SessionLocal
 from app.models import SyncItem, SyncRun, utcnow
 from app.settings_store import get_setting
-from app.walmart_auth import validate_walmart_auth
+from app.walmart_auth import obtain_walmart_token
 
 
 ACTIVE_STATUSES = ("preparing", "applying")
@@ -100,8 +100,7 @@ def build_preview_items(
 
 
 def _walmart_client(db) -> WalmartClient:
-    authenticator, _detail = validate_walmart_auth(db)
-    return WalmartClient(authenticator)
+    return WalmartClient(obtain_walmart_token(db))
 
 
 def _update_progress(
@@ -334,7 +333,7 @@ def apply_preview(run_id: int) -> None:
             _update_progress(
                 db,
                 run,
-                "Validando autenticación de Walmart",
+                "Obteniendo token de Walmart",
                 current=run.applied_count + run.omitted_count,
                 total=run.changed_count,
                 sku="",

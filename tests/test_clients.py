@@ -64,62 +64,31 @@ def test_access_token_uses_basic_auth_and_is_reused(monkeypatch):
     assert calls[0][1]["headers"]["WM_CONSUMER.CHANNEL.TYPE"] == "channel"
     assert calls[0][1]["headers"]["Content-Type"] == "application/x-www-form-urlencoded"
     assert calls[0][1]["data"] == {"grant_type": "client_credentials"}
+    assert client.last_token_diagnostic["expires_in"] == 900
+    assert client.last_token_diagnostic["correlation_id"]
+    assert "access_token" not in client.last_token_diagnostic
 
 
-def test_authenticator_requires_partner_id():
-    client = WalmartAuthenticator("https://example.test", "client", "secret", "")
-
-    with pytest.raises(AuthenticationError, match="WALMART_PARTNER_ID"):
-        client.access_token()
-
-
-def test_token_detail_uses_access_token_and_validates(monkeypatch):
-    client = authenticator()
+def test_authenticator_allows_missing_partner_id_and_omits_header(monkeypatch):
+    client = WalmartAuthenticator("https://example.test", "client", "secret")
     calls = []
     monkeypatch.setattr(
         client.client,
         "post",
-        lambda *_args, **_kwargs: response(200, {"access_token": "token", "expires_in": 900}),
+        lambda path, **kwargs: calls.append((path, kwargs))
+        or response(200, {"access_token": "token", "expires_in": 900}),
     )
 
-    def fake_get(path, **kwargs):
-        calls.append((path, kwargs))
-        return response(200, {"isValid": True})
-
-    monkeypatch.setattr(client.client, "get", fake_get)
-
-    assert client.authenticate_and_validate() == {"isValid": True}
-    assert calls[0][0] == "/v3/token/detail"
-    assert calls[0][1]["headers"]["WM_SEC.ACCESS_TOKEN"] == "token"
-    assert calls[0][1]["headers"]["WM_QOS.CORRELATION_ID"]
-    assert calls[0][1]["headers"]["WM_SVC.NAME"] == "Walmart Marketplace"
-    assert "Authorization" not in calls[0][1]["headers"]
+    assert client.access_token() == "token"
+    assert "WM_PARTNER.ID" not in calls[0][1]["headers"]
 
 
-def test_token_detail_401_refreshes_and_validates_once(monkeypatch):
-    client = authenticator()
-    tokens = iter(("token-1", "token-2"))
-    detail_calls = []
-    monkeypatch.setattr(
-        client.client,
-        "post",
-        lambda *_args, **_kwargs: response(
-            200,
-            {"access_token": next(tokens), "expires_in": 900},
-        ),
-    )
+def test_business_headers_omit_partner_id():
+    headers = authenticator().business_headers("token", "correlation")
 
-    def fake_get(_path, **kwargs):
-        token = kwargs["headers"]["WM_SEC.ACCESS_TOKEN"]
-        detail_calls.append(token)
-        if token == "token-1":
-            return response(401, {"error": [{"code": "UNAUTHORIZED"}]})
-        return response(200, {"isValid": True})
-
-    monkeypatch.setattr(client.client, "get", fake_get)
-
-    assert client.authenticate_and_validate() == {"isValid": True}
-    assert detail_calls == ["token-1", "token-2"]
+    assert headers["WM_SEC.ACCESS_TOKEN"] == "token"
+    assert headers["WM_QOS.CORRELATION_ID"] == "correlation"
+    assert "WM_PARTNER.ID" not in headers
 
 
 def test_invalid_token_credentials_are_not_retried(monkeypatch):
@@ -154,14 +123,12 @@ def test_authentication_error_handles_non_json_response(monkeypatch):
 def test_business_request_401_reauthenticates_and_retries_once(monkeypatch):
     client = walmart_client()
     request_tokens = []
-    reauth_count = 0
+    token_calls = 0
 
-    def fake_authenticate():
-        nonlocal reauth_count
-        reauth_count += 1
-        client.authenticator._access_token = "fresh-token"
-        client.authenticator._token_expires_at = float("inf")
-        return {"isValid": True}
+    def fake_post(*_args, **_kwargs):
+        nonlocal token_calls
+        token_calls += 1
+        return response(200, {"access_token": "fresh-token", "expires_in": 900})
 
     def fake_request(_method, _path, **kwargs):
         request_tokens.append(kwargs["headers"]["WM_SEC.ACCESS_TOKEN"])
@@ -169,26 +136,24 @@ def test_business_request_401_reauthenticates_and_retries_once(monkeypatch):
             return response(401, {"error": [{"code": "UNAUTHORIZED"}]})
         return response(200, {"feedId": "feed-1"})
 
-    monkeypatch.setattr(client.authenticator, "authenticate_and_validate", fake_authenticate)
+    monkeypatch.setattr(client.authenticator.client, "post", fake_post)
     monkeypatch.setattr(client.client, "request", fake_request)
 
     assert client.request("GET", "/v3/feeds") == {"feedId": "feed-1"}
     assert request_tokens == ["token", "fresh-token"]
-    assert reauth_count == 1
+    assert token_calls == 1
 
 
 def test_business_request_does_not_repeat_authentication_after_second_401(monkeypatch):
     client = walmart_client()
-    reauth_count = 0
+    token_calls = 0
 
-    def fake_authenticate():
-        nonlocal reauth_count
-        reauth_count += 1
-        client.authenticator._access_token = "fresh-token"
-        client.authenticator._token_expires_at = float("inf")
-        return {"isValid": True}
+    def fake_post(*_args, **_kwargs):
+        nonlocal token_calls
+        token_calls += 1
+        return response(200, {"access_token": "fresh-token", "expires_in": 900})
 
-    monkeypatch.setattr(client.authenticator, "authenticate_and_validate", fake_authenticate)
+    monkeypatch.setattr(client.authenticator.client, "post", fake_post)
     monkeypatch.setattr(
         client.client,
         "request",
@@ -198,7 +163,7 @@ def test_business_request_does_not_repeat_authentication_after_second_401(monkey
     with pytest.raises(ApiError, match="HTTP 401"):
         client.request("GET", "/v3/feeds")
 
-    assert reauth_count == 1
+    assert token_calls == 1
 
 
 def test_request_exposes_rate_limit_and_retry_after(monkeypatch):

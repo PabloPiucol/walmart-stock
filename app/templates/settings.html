@@ -34,14 +34,14 @@
   <h2>Walmart Chile</h2>
   <p>Credenciales: <strong>{{ "completas" if walmart_configured else "incompletas" }}</strong></p>
   {% if not walmart_configured %}
-  <p>Define <code>WALMART_CLIENT_ID</code>, <code>WALMART_CLIENT_SECRET</code> y <code>WALMART_PARTNER_ID</code>.</p>
+  <p>Define <code>WALMART_CLIENT_ID</code> y <code>WALMART_CLIENT_SECRET</code>. <code>WALMART_PARTNER_ID</code> es opcional.</p>
   {% else %}
   <form action="/settings/walmart/test" method="post">
-    <button type="submit">Probar autenticación oficial</button>
+    <button type="submit">Probar obtención de token</button>
   </form>
   {% endif %}
   {% if walmart_auth.status %}
-  <p>Última validación: <strong>{{ "exitosa" if walmart_auth.status == "ok" else "fallida" }}</strong>{% if walmart_auth.checked_at %} · {{ walmart_auth.checked_at }}{% endif %}</p>
+  <p>Última obtención de token: <strong>{{ "exitosa" if walmart_auth.status == "ok" else "fallida" }}</strong>{% if walmart_auth.checked_at %} · {{ walmart_auth.checked_at }}{% endif %}</p>
   {% if walmart_auth.status == "error" %}
   <div class="error"><code>{{ walmart_auth.summary }}</code></div>
   {% else %}

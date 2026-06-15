@@ -169,7 +169,7 @@ class WalmartAuthenticator:
         base_url: str,
         client_id: str,
         client_secret: str,
-        partner_id: str,
+        partner_id: str = "",
         channel_type: str = "",
         market: str = "cl",
     ):
@@ -182,6 +182,7 @@ class WalmartAuthenticator:
         self.client = httpx.Client(base_url=self.base_url, timeout=httpx.Timeout(30))
         self._access_token = ""
         self._token_expires_at = 0.0
+        self.last_token_diagnostic: dict[str, Any] = {}
 
     def _correlation_id(self) -> str:
         return str(uuid4())
@@ -190,23 +191,12 @@ class WalmartAuthenticator:
         headers = {
             "Accept": "application/json",
             "WM_MARKET": self.market,
-            "WM_PARTNER.ID": self.partner_id,
             "WM_QOS.CORRELATION_ID": correlation_id,
             "WM_SVC.NAME": "Walmart Marketplace",
             "Content-Type": "application/x-www-form-urlencoded",
         }
-        if self.channel_type:
-            headers["WM_CONSUMER.CHANNEL.TYPE"] = self.channel_type
-        return headers
-
-    def _detail_headers(self, token: str, correlation_id: str) -> dict[str, str]:
-        headers = {
-            "Accept": "application/json",
-            "Content-Type": "application/json",
-            "WM_SEC.ACCESS_TOKEN": token,
-            "WM_QOS.CORRELATION_ID": correlation_id,
-            "WM_SVC.NAME": "Walmart Marketplace",
-        }
+        if self.partner_id:
+            headers["WM_PARTNER.ID"] = self.partner_id
         if self.channel_type:
             headers["WM_CONSUMER.CHANNEL.TYPE"] = self.channel_type
         return headers
@@ -215,7 +205,6 @@ class WalmartAuthenticator:
         headers = {
             "Accept": "application/json",
             "WM_MARKET": self.market,
-            "WM_PARTNER.ID": self.partner_id,
             "WM_QOS.CORRELATION_ID": correlation_id,
             "WM_SEC.ACCESS_TOKEN": token,
             "WM_SVC.NAME": "Walmart Marketplace",
@@ -234,7 +223,6 @@ class WalmartAuthenticator:
             for name, value in (
                 ("WALMART_CLIENT_ID", self.client_id),
                 ("WALMART_CLIENT_SECRET", self.client_secret),
-                ("WALMART_PARTNER_ID", self.partner_id),
             )
             if not value
         ]
@@ -281,8 +269,14 @@ class WalmartAuthenticator:
                 response.raise_for_status()
                 payload = response.json()
                 self._access_token = str(payload["access_token"])
-                expires_in = max(0, int(payload.get("expires_in", 900)) - 60)
-                self._token_expires_at = time.monotonic() + expires_in
+                reported_expires_in = int(payload.get("expires_in", 900))
+                self._token_expires_at = time.monotonic() + max(0, reported_expires_in - 60)
+                self.last_token_diagnostic = {
+                    "status": "emitted",
+                    "expires_in": reported_expires_in,
+                    "token_type": payload.get("token_type", ""),
+                    "correlation_id": correlation_id,
+                }
                 return self._access_token
             except AuthenticationError:
                 raise
@@ -298,62 +292,6 @@ class WalmartAuthenticator:
                     correlation_id=correlation_id,
                 ) from exc
         raise AuthenticationError("POST /v3/token", "error desconocido")
-
-    def token_detail(self, token: str) -> Any:
-        for attempt in range(3):
-            response: httpx.Response | None = None
-            correlation_id = self._correlation_id()
-            try:
-                response = self.client.get(
-                    "/v3/token/detail",
-                    headers=self._detail_headers(token, correlation_id),
-                )
-                if response.status_code == 429:
-                    if attempt < 2:
-                        time.sleep(_retry_after_seconds(response.headers.get("retry-after")) or attempt + 1)
-                        continue
-                    raise RateLimitError(
-                        "GET",
-                        "/v3/token/detail",
-                        response.text[:500],
-                        _retry_after_seconds(response.headers.get("retry-after")),
-                    )
-                if response.status_code >= 500 and attempt < 2:
-                    time.sleep(attempt + 1)
-                    continue
-                if response.status_code in {400, 401, 403}:
-                    raise AuthenticationError(
-                        "GET /v3/token/detail",
-                        _response_summary(response),
-                        status_code=response.status_code,
-                        correlation_id=correlation_id,
-                    )
-                response.raise_for_status()
-                return response.json()
-            except AuthenticationError:
-                raise
-            except (httpx.HTTPError, ValueError) as exc:
-                if isinstance(exc, httpx.RequestError) and attempt < 2:
-                    time.sleep(attempt + 1)
-                    continue
-                detail = _response_summary(response) or str(exc)
-                raise AuthenticationError(
-                    "GET /v3/token/detail",
-                    detail,
-                    status_code=response.status_code if response is not None else None,
-                    correlation_id=correlation_id,
-                ) from exc
-        raise AuthenticationError("GET /v3/token/detail", "error desconocido")
-
-    def authenticate_and_validate(self) -> Any:
-        token = self.access_token()
-        try:
-            return self.token_detail(token)
-        except AuthenticationError as exc:
-            if exc.status_code != 401:
-                raise
-        self.invalidate()
-        return self.token_detail(self.access_token(force=True))
 
 
 class WalmartClient:
@@ -378,7 +316,7 @@ class WalmartClient:
                 if response.status_code == 401 and not auth_retry_used:
                     auth_retry_used = True
                     self.authenticator.invalidate()
-                    self.authenticator.authenticate_and_validate()
+                    self.authenticator.access_token(force=True)
                     continue
                 if response.status_code == 429:
                     raise RateLimitError(

@@ -244,7 +244,7 @@ def test_apply_preview_stops_before_feeds_when_authentication_fails(monkeypatch)
     run_id = seed_applying_run(session_factory, {"A": 1})
 
     def fail_authentication(_db):
-        raise AuthenticationError("GET /v3/token/detail", "credenciales inválidas")
+        raise AuthenticationError("POST /v3/token", "credenciales inválidas")
 
     monkeypatch.setattr(sync_service, "SessionLocal", session_factory)
     monkeypatch.setattr(sync_service, "get_config", config)

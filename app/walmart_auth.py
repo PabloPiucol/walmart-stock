@@ -16,11 +16,7 @@ AUTH_SUMMARY_KEY = "walmart_auth_last_summary"
 
 def walmart_configured(config: AppConfig | None = None) -> bool:
     config = config or get_config()
-    return bool(
-        config.walmart_client_id
-        and config.walmart_client_secret
-        and config.walmart_partner_id
-    )
+    return bool(config.walmart_client_id and config.walmart_client_secret)
 
 
 def walmart_authenticator(config: AppConfig | None = None) -> WalmartAuthenticator:
@@ -53,13 +49,13 @@ def record_auth_diagnostic(db: Session, success: bool, summary: str) -> None:
     })
 
 
-def validate_walmart_auth(
+def obtain_walmart_token(
     db: Session,
     authenticator: WalmartAuthenticator | None = None,
-) -> tuple[WalmartAuthenticator, object]:
+) -> WalmartAuthenticator:
     authenticator = authenticator or walmart_authenticator()
     try:
-        detail = authenticator.authenticate_and_validate()
+        authenticator.access_token()
     except Exception as exc:
         summary = str(exc)
         known_secrets = {
@@ -71,8 +67,8 @@ def validate_walmart_auth(
                 summary = summary.replace(secret, "[REDACTED]")
         record_auth_diagnostic(db, False, summary)
         raise
-    record_auth_diagnostic(db, True, sanitized_summary(detail))
-    return authenticator, detail
+    record_auth_diagnostic(db, True, sanitized_summary(authenticator.last_token_diagnostic))
+    return authenticator
 
 
 def walmart_auth_diagnostic(db: Session) -> dict[str, str]:

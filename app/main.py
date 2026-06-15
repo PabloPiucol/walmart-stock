@@ -16,7 +16,7 @@ from app.models import SyncRun, utcnow
 from app.settings_store import get_setting, set_setting
 from app.sync_service import ACTIVE_STATUSES, apply_preview, create_preview
 from app.walmart_auth import (
-    validate_walmart_auth,
+    obtain_walmart_token,
     walmart_auth_diagnostic,
     walmart_configured,
 )
@@ -140,7 +140,7 @@ def save_office(
 @app.post("/settings/walmart/test")
 def test_walmart_authentication(db: Session = Depends(get_db)):
     try:
-        validate_walmart_auth(db)
+        obtain_walmart_token(db)
     except Exception:
         pass
     return RedirectResponse("/settings", status_code=303)
