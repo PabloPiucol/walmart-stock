@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Configuración · Stock Sync{% endblock %}
+{% block content %}
+<section class="page-header">
+  <div>
+    <h1>Configuración</h1>
+    <p>Las credenciales secretas se configuran mediante variables de entorno.</p>
+  </div>
+</section>
+
+<section class="settings-block">
+  <h2>Bsale</h2>
+  <p>Token: <strong>{{ "configurado" if bsale_configured else "sin configurar" }}</strong></p>
+  {% if error %}<div class="error">{{ error }}</div>{% endif %}
+  {% if offices %}
+  <form action="/settings/office" method="post" class="inline-form">
+    <label for="office">Sucursal</label>
+    <select name="office_id" id="office" required>
+      {% for office in offices %}
+      <option value="{{ office.id }}" data-name="{{ office.name }}" {% if office.id|string == selected_office %}selected{% endif %}>
+        {{ office.name }}
+      </option>
+      {% endfor %}
+    </select>
+    <input type="hidden" name="office_name" id="office_name">
+    <button type="submit">Guardar sucursal</button>
+  </form>
+  {% elif not bsale_configured %}
+  <p>Define <code>BSALE_ACCESS_TOKEN</code> para consultar sucursales.</p>
+  {% endif %}
+</section>
+
+<section class="settings-block">
+  <h2>Walmart Chile</h2>
+  <p>Credenciales: <strong>{{ "completas" if walmart_configured else "incompletas" }}</strong></p>
+  {% if not walmart_configured %}
+  <p>Define <code>WALMART_CLIENT_ID</code>, <code>WALMART_CLIENT_SECRET</code> y <code>WALMART_PARTNER_ID</code>.</p>
+  {% else %}
+  <form action="/settings/walmart/test" method="post">
+    <button type="submit">Probar autenticación oficial</button>
+  </form>
+  {% endif %}
+  {% if walmart_auth.status %}
+  <p>Última validación: <strong>{{ "exitosa" if walmart_auth.status == "ok" else "fallida" }}</strong>{% if walmart_auth.checked_at %} · {{ walmart_auth.checked_at }}{% endif %}</p>
+  {% if walmart_auth.status == "error" %}
+  <div class="error"><code>{{ walmart_auth.summary }}</code></div>
+  {% else %}
+  <div class="notice"><code>{{ walmart_auth.summary }}</code></div>
+  {% endif %}
+  {% endif %}
+</section>
+
+<script>
+  const select = document.getElementById("office");
+  const nameInput = document.getElementById("office_name");
+  if (select) {
+    const updateName = () => nameInput.value = select.options[select.selectedIndex].dataset.name;
+    select.addEventListener("change", updateName);
+    updateName();
+  }
+</script>
+{% endblock %}

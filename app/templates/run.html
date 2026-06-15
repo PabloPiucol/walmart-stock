@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% block title %}Ejecución #{{ run.id }} · Stock Sync{% endblock %}
+{% block content %}
+<section class="page-header">
+  <div>
+    <h1>Ejecución #{{ run.id }}</h1>
+    <p>Creada el {{ run.created_at.strftime("%Y-%m-%d %H:%M:%S") }}</p>
+    {% if run.feed_ids %}
+    <p>Feeds Walmart:
+      {% for feed_id in run.feed_ids %}<code>{{ feed_id }}</code>{% if not loop.last %} {% endif %}{% endfor %}
+    </p>
+    {% endif %}
+  </div>
+  {% if run.status == "preview_ready" and run.changed_count > 0 %}
+  <form action="/runs/{{ run.id }}/apply" method="post" onsubmit="return confirm('¿Enviar exactamente las cantidades de esta vista previa a Walmart?')">
+    <button type="submit" {% if not walmart_configured %}disabled{% endif %}>Enviar {{ run.changed_count }} productos</button>
+  </form>
+  {% elif can_resume %}
+  <form action="/runs/{{ run.id }}/resume" method="post" onsubmit="return confirm('¿Reanudar el seguimiento sin reenviar los feeds existentes?')">
+    <button type="submit" {% if not walmart_configured %}disabled{% endif %}>Reanudar seguimiento</button>
+  </form>
+  {% elif run.status == "preparing" %}
+  <form id="cancel-form" action="/runs/{{ run.id }}/cancel" method="post">
+    <button class="button-secondary" type="submit" {% if run.cancel_requested %}disabled{% endif %}>
+      {{ "Cancelación solicitada" if run.cancel_requested else "Cancelar preparación" }}
+    </button>
+  </form>
+  {% endif %}
+</section>
+
+<div class="summary">
+  <div><span>Estado</span><strong id="run-state" class="state state-{{ run.status }}">{{ run.status }}</strong></div>
+  <div><span>Total</span><strong>{{ run.total_count }}</strong></div>
+  <div><span>A enviar</span><strong>{{ run.changed_count }}</strong></div>
+  <div><span>Aplicados</span><strong>{{ run.applied_count }}</strong></div>
+  <div><span>Omitidos</span><strong>{{ run.omitted_count }}</strong></div>
+  <div><span>Errores locales</span><strong>{{ run.error_count }}</strong></div>
+</div>
+
+<section
+  id="progress"
+  class="progress-card"
+  data-active="{{ 'true' if run.status in ('preparing', 'applying') else 'false' }}"
+  data-run-id="{{ run.id }}"
+>
+  <div class="progress-heading">
+    <div>
+      <span>Progreso</span>
+      <strong id="progress-stage">{{ run.progress_stage or "Sin información de progreso" }}</strong>
+    </div>
+    <strong id="progress-percent">
+      {% if run.progress_total > 0 %}{{ ((run.progress_current * 100) / run.progress_total)|round|int }}%{% elif run.status in ("preparing", "applying") %}—{% else %}100%{% endif %}
+    </strong>
+  </div>
+  <div class="progress-track">
+    <div
+      id="progress-bar"
+      class="progress-bar{% if run.progress_total == 0 and run.status in ('preparing', 'applying') %} progress-indeterminate{% endif %}"
+      style="width: {% if run.progress_total > 0 %}{{ ((run.progress_current * 100) / run.progress_total)|round|int }}{% elif run.status in ('preparing', 'applying') %}0{% else %}100{% endif %}%"
+    ></div>
+  </div>
+  <div class="progress-detail">
+    <span id="progress-count">
+      {% if run.progress_total > 0 %}{{ run.progress_current }} de {{ run.progress_total }} productos{% else %}Esperando conteo de productos{% endif %}
+    </span>
+    <span id="progress-sku">{% if run.progress_sku %}Último SKU: {{ run.progress_sku }}{% endif %}</span>
+  </div>
+</section>
+
+{% if run.error_message %}<div class="error">{{ run.error_message }}</div>{% endif %}
+{% if run.status == "preview_ready" and not walmart_configured %}
+<div class="notice">Configura las credenciales Walmart antes de aplicar esta vista previa.</div>
+{% endif %}
+{% if run.status == "preview_ready" and run.changed_count == 0 %}
+<div class="notice">No hay productos válidos para enviar en esta vista previa.</div>
+{% endif %}
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr><th>SKU</th><th>Stock anterior</th><th>Stock Bsale</th><th>Feed ID</th><th>Estado</th><th>Detalle</th></tr>
+  </thead>
+  <tbody>
+    {% for item in run.items %}
+    <tr>
+      <td><strong>{{ item.sku }}</strong></td>
+      <td>{{ item.before_quantity if item.before_quantity is not none else "—" }}</td>
+      <td>{{ item.target_quantity if item.target_quantity is not none else "—" }}</td>
+      <td>{{ item.feed_id or "—" }}</td>
+      <td><span class="state state-{{ item.status }}">{{ item.status }}</span></td>
+      <td>{{ item.message or "—" }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="6" class="empty">{{ "Consultando productos…" if run.status == "preparing" else "Sin eventos." }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+
+<script>
+  const progress = document.getElementById("progress");
+  const state = document.getElementById("run-state");
+  const stage = document.getElementById("progress-stage");
+  const percent = document.getElementById("progress-percent");
+  const bar = document.getElementById("progress-bar");
+  const count = document.getElementById("progress-count");
+  const sku = document.getElementById("progress-sku");
+  const cancelForm = document.getElementById("cancel-form");
+  const runId = progress.dataset.runId;
+
+  const renderProgress = (data) => {
+    state.textContent = data.status;
+    state.className = `state state-${data.status}`;
+    stage.textContent = data.stage || "Procesando";
+    percent.textContent = data.percent === null ? "—" : `${data.percent}%`;
+    bar.style.width = data.percent === null ? "0%" : `${data.percent}%`;
+    bar.classList.toggle("progress-indeterminate", data.percent === null && data.active);
+    count.textContent = data.total > 0
+      ? `${data.current} de ${data.total} productos`
+      : "Esperando conteo de productos";
+    sku.textContent = data.sku ? `Último SKU: ${data.sku}` : "";
+    if (cancelForm) {
+      const button = cancelForm.querySelector("button");
+      button.disabled = !data.can_cancel;
+      button.textContent = data.cancel_requested ? "Cancelación solicitada" : "Cancelar preparación";
+    }
+  };
+
+  const refreshProgress = async () => {
+    try {
+      const response = await fetch(`/runs/${runId}/status`, {cache: "no-store"});
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+      renderProgress(data);
+      if (data.active) {
+        setTimeout(refreshProgress, 2000);
+      } else {
+        window.location.reload();
+      }
+    } catch (_error) {
+      stage.textContent = "No se pudo actualizar el progreso; reintentando…";
+      setTimeout(refreshProgress, 5000);
+    }
+  };
+
+  if (cancelForm) {
+    cancelForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const button = cancelForm.querySelector("button");
+      button.disabled = true;
+      button.textContent = "Solicitando cancelación…";
+      try {
+        const response = await fetch(cancelForm.action, {method: "POST"});
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
+        renderProgress(data);
+      } catch (error) {
+        stage.textContent = `No se pudo cancelar: ${error.message}`;
+        button.disabled = false;
+        button.textContent = "Cancelar preparación";
+      }
+    });
+  }
+
+  if (progress.dataset.active === "true") {
+    setTimeout(refreshProgress, 500);
+  }
+</script>
+{% endblock %}

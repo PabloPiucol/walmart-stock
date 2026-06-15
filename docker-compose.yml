@@ -1,0 +1,16 @@
+services:
+  stock-sync:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "3011:3011"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-sqlite:////data/app.db}
+    volumes:
+      - stock_data:/data
+
+volumes:
+  stock_data:

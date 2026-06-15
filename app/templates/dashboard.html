@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-header">
+  <div>
+    <h1>Ejecuciones</h1>
+    <p>Genera una vista previa antes de actualizar Walmart Chile.</p>
+  </div>
+  <form action="/sync/preview" method="post">
+    <button type="submit" {% if active or not (bsale_configured and office_name) %}disabled{% endif %}>
+      Generar vista previa
+    </button>
+  </form>
+</section>
+
+{% if not (bsale_configured and office_name) %}
+<div class="notice">Configura Bsale y selecciona una sucursal antes de generar la vista previa.</div>
+{% elif not walmart_configured %}
+<div class="notice">Puedes generar la vista previa, pero debes configurar Walmart antes de aplicarla.</div>
+{% endif %}
+{% if active %}
+<div class="notice">Hay una ejecución activa: <a href="/runs/{{ active.id }}">ver progreso</a>.</div>
+{% endif %}
+
+<div class="status-line">
+  <span>Bsale: <strong>{{ "configurado" if bsale_configured else "sin token" }}</strong></span>
+  <span>Sucursal: <strong>{{ office_name or "sin seleccionar" }}</strong></span>
+  <span>Walmart Chile: <strong>{{ "credenciales completas" if walmart_configured else "credenciales incompletas" }}</strong></span>
+</div>
+
+<table>
+  <thead>
+    <tr><th>ID</th><th>Fecha</th><th>Estado</th><th>Feeds</th><th>A enviar</th><th>Aplicados</th><th>Omitidos</th><th>Errores locales</th><th></th></tr>
+  </thead>
+  <tbody>
+    {% for run in runs %}
+    <tr>
+      <td>#{{ run.id }}</td>
+      <td>{{ run.created_at.strftime("%Y-%m-%d %H:%M:%S") }}</td>
+      <td><span class="state state-{{ run.status }}">{{ run.status }}</span></td>
+      <td>{{ run.feed_ids|join(", ") if run.feed_ids else "—" }}</td>
+      <td>{{ run.changed_count }}</td>
+      <td>{{ run.applied_count }}</td>
+      <td>{{ run.omitted_count }}</td>
+      <td>{{ run.error_count }}</td>
+      <td><a href="/runs/{{ run.id }}">Ver detalle</a></td>
+    </tr>
+    {% else %}
+    <tr><td colspan="9" class="empty">Todavía no existen ejecuciones.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
