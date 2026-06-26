@@ -446,6 +446,14 @@ class WalmartClient:
         for key, child in value.items():
             if key in allowed_metadata:
                 continue
+            if key == "status":
+                continue
+            if key == "header":
+                continue
+            if key == "errors":
+                if child in (None, [], {}):
+                    continue
+                return False
             if key not in {"payload", "results", "feed", "feeds"}:
                 return False
             if not WalmartClient._is_known_empty_feed_response(child):

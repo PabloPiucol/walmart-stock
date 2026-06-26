@@ -305,6 +305,17 @@ def test_feed_status_parses_real_walmart_feedid_response(monkeypatch):
     {},
     {"payload": {"results": {"feed": []}}},
     {"feeds": [{"feedId": "another-feed", "feedStatus": "PROCESSED"}]},
+    {
+        "status": "OK",
+        "header": {"headerAttributes": {}},
+        "errors": [],
+        "payload": {
+            "totalResults": 0,
+            "offset": 0,
+            "limit": 50,
+            "results": {},
+        },
+    },
 ])
 def test_feed_status_treats_missing_feed_as_temporarily_unavailable(monkeypatch, payload):
     client = walmart_client()
