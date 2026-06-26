@@ -195,6 +195,7 @@ def create_preview(run_id: int) -> None:
 
 
 def _mark_terminal_items(run: SyncRun, items: list[SyncItem], status) -> None:
+    detailed_errors_complete = len(status.item_statuses) >= status.items_failed
     for item in items:
         item_status, message = status.item_statuses.get(item.sku, ("", ""))
         if item_status in {"SUCCESS", "PROCESSED"}:
@@ -204,16 +205,15 @@ def _mark_terminal_items(run: SyncRun, items: list[SyncItem], status) -> None:
             item.status = "omitted"
             item.message = message or f"Walmart informó estado {item_status}"
             run.omitted_count += 1
-        elif (
-            len(status.item_statuses) == status.items_failed
-            and status.items_succeeded + status.items_failed >= len(items)
-        ):
+        elif not status.items_failed or detailed_errors_complete:
             item.status = "applied"
             run.applied_count += 1
         else:
-            raise RuntimeError(
-                "Walmart no informó resultados individuales suficientes para el feed"
+            item.status = "unconfirmed"
+            item.message = (
+                "Walmart procesó el feed, pero no informó resultado individual para este SKU"
             )
+            run.failure_count += 1
 
 
 def _sleep_with_deadline(seconds: float, deadline: float) -> None:
@@ -266,18 +266,29 @@ def _follow_feed(
         run.progress_updated_at = utcnow()
         db.commit()
         if status.terminal:
+            detailed_errors = 0
             if status.items_failed:
                 run.progress_stage = f"Consultando errores de {label}"
                 run.progress_updated_at = utcnow()
                 db.commit()
+                item_statuses = client.feed_errors(feed_id)
+                detailed_errors = len(item_statuses)
                 status = type(status)(
                     status=status.status,
-                    item_statuses=client.feed_errors(feed_id),
+                    item_statuses=item_statuses,
                     items_succeeded=status.items_succeeded,
                     items_failed=status.items_failed,
                     items_received=status.items_received,
                     available=status.available,
                 )
+            run.set_walmart_summary(
+                feed_id,
+                status=status.status,
+                items_received=status.items_received,
+                items_succeeded=status.items_succeeded,
+                items_failed=status.items_failed,
+                detailed_errors=detailed_errors,
+            )
             _mark_terminal_items(run, items, status)
             run.progress_current = completed_count + len(items)
             run.progress_updated_at = utcnow()
@@ -316,9 +327,13 @@ def _submitted_feed_groups(db, run: SyncRun) -> list[tuple[str, list[SyncItem]]]
 
 
 def _finish_application(db, run: SyncRun) -> None:
-    run.status = "completed"
-    run.progress_stage = "Aplicación terminada"
-    run.progress_current = run.applied_count + run.omitted_count
+    if run.failure_count:
+        run.status = "completed_with_errors"
+        run.progress_stage = "Aplicación terminada con advertencias"
+    else:
+        run.status = "completed"
+        run.progress_stage = "Aplicación terminada"
+    run.progress_current = run.applied_count + run.omitted_count + run.failure_count
     run.progress_total = run.changed_count
     run.progress_updated_at = utcnow()
     run.applied_at = utcnow()

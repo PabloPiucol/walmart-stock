@@ -34,7 +34,15 @@
   <div><span>A enviar</span><strong>{{ run.changed_count }}</strong></div>
   <div><span>Aplicados</span><strong>{{ run.applied_count }}</strong></div>
   <div><span>Omitidos</span><strong>{{ run.omitted_count }}</strong></div>
+  <div><span>No confirmados</span><strong>{{ run.failure_count }}</strong></div>
   <div><span>Errores locales</span><strong>{{ run.error_count }}</strong></div>
+  {% set walmart_totals = run.walmart_summary_totals %}
+  {% if walmart_totals.received or walmart_totals.succeeded or walmart_totals.failed %}
+  <div><span>Walmart recibidos</span><strong>{{ walmart_totals.received }}</strong></div>
+  <div><span>Walmart exitosos</span><strong>{{ walmart_totals.succeeded }}</strong></div>
+  <div><span>Walmart fallidos</span><strong>{{ walmart_totals.failed }}</strong></div>
+  <div><span>Errores detallados</span><strong>{{ walmart_totals.detailed_errors }}</strong></div>
+  {% endif %}
 </div>
 
 <section

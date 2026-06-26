@@ -28,6 +28,7 @@ class SyncRun(Base):
     applied_at: Mapped[datetime | None]
     feed_id: Mapped[str] = mapped_column(String(100), default="")
     feed_ids_json: Mapped[str] = mapped_column(Text, default="[]")
+    walmart_summary_json: Mapped[str] = mapped_column(Text, default="{}")
     progress_stage: Mapped[str] = mapped_column(String(100), default="")
     progress_current: Mapped[int] = mapped_column(default=0)
     progress_total: Mapped[int] = mapped_column(default=0)
@@ -65,6 +66,51 @@ class SyncRun(Base):
         self.feed_ids_json = json.dumps(values, separators=(",", ":"))
         if not self.feed_id:
             self.feed_id = feed_id
+
+    @property
+    def walmart_summaries(self) -> dict[str, dict]:
+        try:
+            values = json.loads(self.walmart_summary_json or "{}")
+        except (TypeError, json.JSONDecodeError):
+            return {}
+        return values if isinstance(values, dict) else {}
+
+    @property
+    def walmart_summary_totals(self) -> dict[str, int]:
+        totals = {
+            "received": 0,
+            "succeeded": 0,
+            "failed": 0,
+            "detailed_errors": 0,
+        }
+        for summary in self.walmart_summaries.values():
+            if not isinstance(summary, dict):
+                continue
+            totals["received"] += int(summary.get("items_received") or 0)
+            totals["succeeded"] += int(summary.get("items_succeeded") or 0)
+            totals["failed"] += int(summary.get("items_failed") or 0)
+            totals["detailed_errors"] += int(summary.get("detailed_errors") or 0)
+        return totals
+
+    def set_walmart_summary(
+        self,
+        feed_id: str,
+        *,
+        status: str,
+        items_received: int,
+        items_succeeded: int,
+        items_failed: int,
+        detailed_errors: int,
+    ) -> None:
+        summaries = self.walmart_summaries
+        summaries[feed_id] = {
+            "status": status,
+            "items_received": items_received,
+            "items_succeeded": items_succeeded,
+            "items_failed": items_failed,
+            "detailed_errors": detailed_errors,
+        }
+        self.walmart_summary_json = json.dumps(summaries, separators=(",", ":"))
 
 
 class SyncItem(Base):

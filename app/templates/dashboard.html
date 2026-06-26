@@ -29,7 +29,7 @@
 
 <table>
   <thead>
-    <tr><th>ID</th><th>Fecha</th><th>Estado</th><th>Feeds</th><th>A enviar</th><th>Aplicados</th><th>Omitidos</th><th>Errores locales</th><th></th></tr>
+    <tr><th>ID</th><th>Fecha</th><th>Estado</th><th>Feeds</th><th>A enviar</th><th>Walmart OK</th><th>Aplicados</th><th>Omitidos</th><th>No confirmados</th><th>Errores locales</th><th></th></tr>
   </thead>
   <tbody>
     {% for run in runs %}
@@ -39,13 +39,15 @@
       <td><span class="state state-{{ run.status }}">{{ run.status }}</span></td>
       <td>{{ run.feed_ids|join(", ") if run.feed_ids else "—" }}</td>
       <td>{{ run.changed_count }}</td>
+      <td>{{ run.walmart_summary_totals.succeeded }}</td>
       <td>{{ run.applied_count }}</td>
       <td>{{ run.omitted_count }}</td>
+      <td>{{ run.failure_count }}</td>
       <td>{{ run.error_count }}</td>
       <td><a href="/runs/{{ run.id }}">Ver detalle</a></td>
     </tr>
     {% else %}
-    <tr><td colspan="9" class="empty">Todavía no existen ejecuciones.</td></tr>
+    <tr><td colspan="11" class="empty">Todavía no existen ejecuciones.</td></tr>
     {% endfor %}
   </tbody>
 </table>

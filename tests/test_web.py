@@ -47,6 +47,7 @@ def test_run_status_payload_reports_progress_and_cancel_capability():
         feed_id="feed-1",
         feed_ids_json='["feed-1","feed-2"]',
         omitted_count=2,
+        walmart_summary_json='{"feed-1":{"items_received":4,"items_succeeded":3,"items_failed":1,"detailed_errors":1}}',
     )
 
     payload = run_status_payload(run)
@@ -56,6 +57,12 @@ def test_run_status_payload_reports_progress_and_cancel_capability():
     assert payload["sku"] == "SKU-3"
     assert payload["feed_ids"] == ["feed-1", "feed-2"]
     assert payload["omitted_count"] == 2
+    assert payload["walmart_summary"] == {
+        "received": 4,
+        "succeeded": 3,
+        "failed": 1,
+        "detailed_errors": 1,
+    }
 
 
 def test_cancel_preview_is_only_allowed_while_preparing():

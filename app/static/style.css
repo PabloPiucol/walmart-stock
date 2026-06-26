@@ -81,6 +81,7 @@ th { color: #5f6368; font-size: 13px; background: #fafafa; }
 }
 .state-completed, .state-applied, .state-unchanged { color: #137333; }
 .state-omitted { color: #777; }
+.state-unconfirmed { color: #b06000; }
 .state-failed, .state-error, .state-completed_with_errors { color: #c5221f; }
 .state-preview_ready, .state-pending { color: #b06000; }
 .state-preparing, .state-applying, .state-submitted { color: #1459a6; }

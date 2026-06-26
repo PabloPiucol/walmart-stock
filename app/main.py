@@ -83,6 +83,7 @@ def run_status_payload(run: SyncRun) -> dict:
         "applied_count": run.applied_count,
         "omitted_count": run.omitted_count,
         "failure_count": run.failure_count,
+        "walmart_summary": run.walmart_summary_totals,
     }
 
 

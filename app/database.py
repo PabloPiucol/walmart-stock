@@ -38,7 +38,9 @@ SQLITE_SYNC_RUN_COLUMNS = {
     "progress_updated_at": "DATETIME",
     "cancel_requested": "BOOLEAN NOT NULL DEFAULT 0",
     "feed_ids_json": "TEXT NOT NULL DEFAULT '[]'",
+    "walmart_summary_json": "TEXT NOT NULL DEFAULT '{}'",
     "omitted_count": "INTEGER NOT NULL DEFAULT 0",
+    "failure_count": "INTEGER NOT NULL DEFAULT 0",
 }
 
 SQLITE_SYNC_ITEM_COLUMNS = {

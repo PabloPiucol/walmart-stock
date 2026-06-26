@@ -280,6 +280,89 @@ def test_apply_preview_reports_error_lookup_after_processed_feed(monkeypatch):
     assert fetch_error_flags == [False]
 
 
+def test_apply_preview_completes_with_unconfirmed_items_when_walmart_error_details_are_incomplete(monkeypatch):
+    session_factory = sessions()
+    run_id = seed_applying_run(session_factory, {"BAD": 1, "UNKNOWN": 2})
+
+    class FakeWalmart:
+        def inventory_feed_batches(self, quantities):
+            return [quantities]
+
+        def submit_inventory_feed(self, _quantities):
+            return "feed-1"
+
+        def feed_status(self, _feed_id, **_kwargs):
+            return WalmartFeedStatus(
+                "PROCESSED",
+                {},
+                items_succeeded=439,
+                items_failed=2347,
+                items_received=2786,
+            )
+
+        def feed_errors(self, _feed_id):
+            return {"BAD": ("DATA_ERROR", "SKU inexistente")}
+
+    monkeypatch.setattr(sync_service, "SessionLocal", session_factory)
+    monkeypatch.setattr(sync_service, "get_config", config)
+    monkeypatch.setattr(sync_service, "_walmart_client", lambda _db: FakeWalmart())
+
+    sync_service.apply_preview(run_id)
+
+    with session_factory() as db:
+        run = db.get(SyncRun, run_id)
+        items = {item.sku: item for item in db.scalars(select(SyncItem)).all()}
+        assert run.status == "completed_with_errors"
+        assert run.progress_stage == "Aplicación terminada con advertencias"
+        assert run.applied_count == 0
+        assert run.omitted_count == 1
+        assert run.failure_count == 1
+        assert run.progress_current == 2
+        assert run.walmart_summary_totals == {
+            "received": 2786,
+            "succeeded": 439,
+            "failed": 2347,
+            "detailed_errors": 1,
+        }
+        assert items["BAD"].status == "omitted"
+        assert items["UNKNOWN"].status == "unconfirmed"
+        assert "no informó resultado individual" in items["UNKNOWN"].message
+
+
+def test_apply_preview_marks_missing_items_applied_when_walmart_error_details_are_complete(monkeypatch):
+    session_factory = sessions()
+    run_id = seed_applying_run(session_factory, {"BAD": 1, "OK": 2})
+
+    class FakeWalmart:
+        def inventory_feed_batches(self, quantities):
+            return [quantities]
+
+        def submit_inventory_feed(self, _quantities):
+            return "feed-1"
+
+        def feed_status(self, _feed_id, **_kwargs):
+            return WalmartFeedStatus("PROCESSED", {}, 1, 1, items_received=2)
+
+        def feed_errors(self, _feed_id):
+            return {"BAD": ("DATA_ERROR", "SKU inexistente")}
+
+    monkeypatch.setattr(sync_service, "SessionLocal", session_factory)
+    monkeypatch.setattr(sync_service, "get_config", config)
+    monkeypatch.setattr(sync_service, "_walmart_client", lambda _db: FakeWalmart())
+
+    sync_service.apply_preview(run_id)
+
+    with session_factory() as db:
+        run = db.get(SyncRun, run_id)
+        items = {item.sku: item for item in db.scalars(select(SyncItem)).all()}
+        assert run.status == "completed"
+        assert run.applied_count == 1
+        assert run.omitted_count == 1
+        assert run.failure_count == 0
+        assert items["BAD"].status == "omitted"
+        assert items["OK"].status == "applied"
+
+
 def test_apply_preview_stops_before_feeds_when_authentication_fails(monkeypatch):
     session_factory = sessions()
     run_id = seed_applying_run(session_factory, {"A": 1})
@@ -382,6 +465,10 @@ def test_resume_existing_feed_without_resubmitting_and_continues_pending(monkeyp
             changed_count=2,
             feed_id="feed-existing",
             feed_ids_json='["feed-existing"]',
+            walmart_summary_json=(
+                '{"feed-existing":{"status":"PROCESSED","items_received":1,'
+                '"items_succeeded":1,"items_failed":0,"detailed_errors":0}}'
+            ),
         )
         db.add(run)
         db.flush()
@@ -415,7 +502,7 @@ def test_resume_existing_feed_without_resubmitting_and_continues_pending(monkeyp
 
         def feed_status(self, feed_id, **_kwargs):
             assert feed_id in {"feed-existing", "feed-new"}
-            return WalmartFeedStatus("PROCESSED", {}, 1, 0)
+            return WalmartFeedStatus("PROCESSED", {}, 1, 0, items_received=1)
 
     monkeypatch.setattr(sync_service, "SessionLocal", session_factory)
     monkeypatch.setattr(sync_service, "get_config", config)
@@ -428,6 +515,12 @@ def test_resume_existing_feed_without_resubmitting_and_continues_pending(monkeyp
         items = {item.sku: item for item in db.scalars(select(SyncItem)).all()}
         assert run.status == "completed"
         assert run.feed_ids == ["feed-existing", "feed-new"]
+        assert run.walmart_summary_totals == {
+            "received": 2,
+            "succeeded": 2,
+            "failed": 0,
+            "detailed_errors": 0,
+        }
         assert submitted == [{"PENDING": 2}]
         assert items["EXISTING"].feed_id == "feed-existing"
         assert items["PENDING"].feed_id == "feed-new"
