@@ -207,15 +207,19 @@ def test_apply_preview_processes_multiple_feeds_and_omits_rejections(monkeypatch
             submitted.append(quantities)
             return f"feed-{len(submitted)}"
 
-        def feed_status(self, feed_id):
+        def feed_status(self, feed_id, **_kwargs):
             if feed_id == "feed-1":
                 return WalmartFeedStatus("PROCESSED", {}, 1, 0)
             return WalmartFeedStatus(
                 "PROCESSED",
-                {"MISSING": ("DATA_ERROR", "SKU inexistente")},
+                {},
                 0,
                 1,
             )
+
+        def feed_errors(self, feed_id):
+            assert feed_id == "feed-2"
+            return {"MISSING": ("DATA_ERROR", "SKU inexistente")}
 
     monkeypatch.setattr(sync_service, "SessionLocal", session_factory)
     monkeypatch.setattr(sync_service, "get_config", config)
@@ -237,6 +241,43 @@ def test_apply_preview_processes_multiple_feeds_and_omits_rejections(monkeypatch
         assert items["MISSING"].status == "omitted"
         assert items["MISSING"].feed_id == "feed-2"
         assert items["MISSING"].message == "SKU inexistente"
+
+
+def test_apply_preview_reports_error_lookup_after_processed_feed(monkeypatch):
+    session_factory = sessions()
+    run_id = seed_applying_run(session_factory, {"FAIL": 5})
+    fetch_error_flags = []
+
+    class FakeWalmart:
+        def inventory_feed_batches(self, quantities):
+            return [quantities]
+
+        def submit_inventory_feed(self, _quantities):
+            return "feed-1"
+
+        def feed_status(self, _feed_id, **kwargs):
+            fetch_error_flags.append(kwargs.get("fetch_errors"))
+            return WalmartFeedStatus("PROCESSED", {}, 0, 1)
+
+        def feed_errors(self, _feed_id):
+            with session_factory() as db:
+                assert db.get(SyncRun, run_id).progress_stage == "Consultando errores de feed 1 de 1"
+            return {"FAIL": ("DATA_ERROR", "SKU inexistente")}
+
+    monkeypatch.setattr(sync_service, "SessionLocal", session_factory)
+    monkeypatch.setattr(sync_service, "get_config", config)
+    monkeypatch.setattr(sync_service, "_walmart_client", lambda _db: FakeWalmart())
+
+    sync_service.apply_preview(run_id)
+
+    with session_factory() as db:
+        run = db.get(SyncRun, run_id)
+        item = db.scalar(select(SyncItem))
+        assert run.status == "completed"
+        assert run.omitted_count == 1
+        assert item.status == "omitted"
+        assert item.message == "SKU inexistente"
+    assert fetch_error_flags == [False]
 
 
 def test_apply_preview_stops_before_feeds_when_authentication_fails(monkeypatch):
@@ -279,7 +320,7 @@ def test_apply_preview_waits_until_feed_becomes_visible(monkeypatch):
         def submit_inventory_feed(self, _quantities):
             return "feed-1"
 
-        def feed_status(self, _feed_id):
+        def feed_status(self, _feed_id, **_kwargs):
             return statuses.pop(0)
 
     wait_config = config()
@@ -312,7 +353,7 @@ def test_apply_preview_retries_rate_limit_during_feed_tracking(monkeypatch):
         def submit_inventory_feed(self, _quantities):
             return "feed-1"
 
-        def feed_status(self, _feed_id):
+        def feed_status(self, _feed_id, **_kwargs):
             nonlocal calls
             calls += 1
             if calls == 1:
@@ -372,7 +413,7 @@ def test_resume_existing_feed_without_resubmitting_and_continues_pending(monkeyp
             submitted.append(quantities)
             return "feed-new"
 
-        def feed_status(self, feed_id):
+        def feed_status(self, feed_id, **_kwargs):
             assert feed_id in {"feed-existing", "feed-new"}
             return WalmartFeedStatus("PROCESSED", {}, 1, 0)
 
@@ -405,7 +446,7 @@ def test_apply_preview_stops_later_batches_after_technical_error(monkeypatch):
             submitted.append(quantities)
             return f"feed-{len(submitted)}"
 
-        def feed_status(self, feed_id):
+        def feed_status(self, feed_id, **_kwargs):
             if feed_id == "feed-1":
                 return WalmartFeedStatus("PROCESSED", {}, 1, 0)
             raise RuntimeError("Walmart no disponible")
@@ -438,7 +479,7 @@ def test_apply_preview_times_out_and_preserves_feed_ids(monkeypatch):
         def submit_inventory_feed(self, _quantities):
             return "feed-timeout"
 
-        def feed_status(self, _feed_id):
+        def feed_status(self, _feed_id, **_kwargs):
             raise AssertionError("No debe consultar si el timeout ya venció")
 
     monkeypatch.setattr(sync_service, "SessionLocal", session_factory)

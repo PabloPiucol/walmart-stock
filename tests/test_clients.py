@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import httpx
 import pytest
@@ -42,6 +43,11 @@ def walmart_client() -> WalmartClient:
     auth._access_token = "token"
     auth._token_expires_at = float("inf")
     return WalmartClient(auth)
+
+
+def real_feed_status_payload() -> dict:
+    text = Path("walmart_feedId_request.txt").read_text()
+    return json.loads(text.split("[RESPONSE]", 1)[1])
 
 
 def test_access_token_uses_basic_auth_and_is_reused(monkeypatch):
@@ -268,6 +274,31 @@ def test_feed_status_uses_summary_and_error_endpoints(monkeypatch):
     assert calls[0] == ("GET", "/v3/feeds", {"params": {"feedId": "feed-1"}})
     assert calls[1][1] == "/v3/feeds/error/feed-1/items"
     assert calls[1][2] == {"params": {"limit": 50, "offset": 0}}
+
+
+def test_feed_status_parses_real_walmart_feedid_response(monkeypatch):
+    client = walmart_client()
+    calls = []
+
+    def fake_request(method, path, **kwargs):
+        calls.append((method, path, kwargs))
+        return real_feed_status_payload()
+
+    monkeypatch.setattr(client, "request", fake_request)
+
+    status = client.feed_status(
+        "18BCA6ACB0C05E08B03CEC887C63D292@AUoBCgA",
+        fetch_errors=False,
+    )
+
+    assert status.available is True
+    assert status.terminal is True
+    assert status.status == "PROCESSED"
+    assert status.items_received == 2786
+    assert status.items_succeeded == 435
+    assert status.items_failed == 2351
+    assert status.item_statuses == {}
+    assert calls == [("GET", "/v3/feeds", {"params": {"feedId": "18BCA6ACB0C05E08B03CEC887C63D292@AUoBCgA"}})]
 
 
 @pytest.mark.parametrize("payload", [

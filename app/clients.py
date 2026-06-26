@@ -156,6 +156,7 @@ class WalmartFeedStatus:
     item_statuses: dict[str, tuple[str, str]]
     items_succeeded: int
     items_failed: int
+    items_received: int = 0
     available: bool = True
 
     @property
@@ -451,7 +452,7 @@ class WalmartClient:
                 return False
         return True
 
-    def feed_status(self, feed_id: str) -> WalmartFeedStatus:
+    def feed_status(self, feed_id: str, *, fetch_errors: bool = True) -> WalmartFeedStatus:
         payload = self.request("GET", "/v3/feeds", params={"feedId": feed_id})
         feeds = self._feed_entries(payload)
         feed = next(
@@ -472,10 +473,11 @@ class WalmartClient:
         return WalmartFeedStatus(
             status=status,
             item_statuses=self.feed_errors(feed_id)
-            if failed and status.upper() in {"PROCESSED", "ERROR", "FAILED"}
+            if fetch_errors and failed and status.upper() in {"PROCESSED", "ERROR", "FAILED"}
             else {},
             items_succeeded=int(feed.get("itemsSucceeded") or 0),
             items_failed=failed,
+            items_received=int(feed.get("itemsReceived") or 0),
         )
 
     def feed_errors(self, feed_id: str) -> dict[str, tuple[str, str]]:

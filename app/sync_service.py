@@ -236,7 +236,7 @@ def _follow_feed(
     rate_limit_attempt = 0
     while time.monotonic() < deadline:
         try:
-            status = client.feed_status(feed_id)
+            status = client.feed_status(feed_id, fetch_errors=False)
         except RateLimitError as exc:
             delay = (
                 exc.retry_after
@@ -266,6 +266,18 @@ def _follow_feed(
         run.progress_updated_at = utcnow()
         db.commit()
         if status.terminal:
+            if status.items_failed:
+                run.progress_stage = f"Consultando errores de {label}"
+                run.progress_updated_at = utcnow()
+                db.commit()
+                status = type(status)(
+                    status=status.status,
+                    item_statuses=client.feed_errors(feed_id),
+                    items_succeeded=status.items_succeeded,
+                    items_failed=status.items_failed,
+                    items_received=status.items_received,
+                    available=status.available,
+                )
             _mark_terminal_items(run, items, status)
             run.progress_current = completed_count + len(items)
             run.progress_updated_at = utcnow()

@@ -5,3 +5,4 @@ __pycache__/
 .env
 data/
 
+walmart_feedId_request.txt
